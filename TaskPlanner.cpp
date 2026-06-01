@@ -51,29 +51,18 @@ namespace {
     }
 
     /**
-     * @brief Escapa caracteres de control antes de escribir un campo de texto en disco.
-     *
-     * @param value Valor original del campo.
-     * @return Valor escapado seguro para almacenamiento separado por tabulaciones.
+     * @brief Escapa caracteres de control y el delimitador visible antes de guardar.
+     * @param text Texto original.
+     * @return Cadena con caracteres especiales escapados.
      */
-    string escapeField(const string& value) {
-        string escaped;
-
-        for (size_t i = 0; i < value.length(); i++) {
-            char ch = value[i];
-
-            if (ch == '\\') {
-                escaped += "\\\\";
-            } else if (ch == '\t') {
-                escaped += "\\t";
-            } else if (ch == '\n') {
-                escaped += "\\n";
-            } else {
-                escaped += ch;
-            }
+    string escapeField(const string& text) {
+        string result = "";
+        for (char c : text) {
+            if (c == '|') result += "\\|"; // Escapa el nuevo delimitador si existe en el texto
+            else if (c == '\n') result += "\\n";
+            else result += c;
         }
-
-        return escaped;
+        return result;
     }
 
     /**
@@ -89,8 +78,8 @@ namespace {
             if (value[i] == '\\' && i + 1 < value.length()) {
                 char next = value[i + 1];
 
-                if (next == 't') {
-                    unescaped += '\t';
+                if (next == '|') {
+                    unescaped += '|';
                     i++;
                 } else if (next == 'n') {
                     unescaped += '\n';
@@ -105,31 +94,37 @@ namespace {
                 unescaped += value[i];
             }
         }
-
         return unescaped;
     }
 
     /**
-     * @brief Divide una linea usando tabulaciones como separadores.
-     *
-     * @param line Linea de entrada.
-     * @return Vector con cada campo separado.
+     * @brief Divide una cadena de texto utilizando el delimitador visible '|'.
+     * @param line Línea de texto leída del archivo.
+     * @return Vector de cadenas con los campos individuales.
      */
-    vector<string> splitTabs(const string& line) {
-        vector<string> fields;
-        string current;
+    vector<string> splitFields(const string& line) {
+        vector<string> tokens;
+        string token = "";
+        bool escaped = false;
 
-        for (size_t i = 0; i < line.length(); i++) {
-            if (line[i] == '\t') {
-                fields.push_back(current);
-                current = "";
+        for (size_t i = 0; i < line.length(); ++i) {
+            char c = line[i];
+            if (escaped) {
+                token += c;
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+                token += c;
+            } else if (c == '|') {
+                tokens.push_back(token);
+                token = "";
             } else {
-                current += line[i];
+                token += c;
             }
         }
-
-        fields.push_back(current);
-        return fields;
+        tokens.push_back(token);
+        return tokens;
+        }
     }
 
     /**
@@ -148,37 +143,6 @@ namespace {
         }
 
         return !(ss >> extra);
-    }
-
-    /**
-     * @brief Determina si un anio es bisiesto.
-     *
-     * @param year Anio que se evaluara.
-     * @return true si el anio es bisiesto; de lo contrario false.
-     */
-    bool isLeapYear(int year) {
-        return (year % 400 == 0) || (year % 4 == 0 && year % 100 != 0);
-    }
-
-    /**
-     * @brief Obtiene la cantidad de dias de un mes para un anio especifico.
-     *
-     * @param month Numero de mes de 1 a 12.
-     * @param year Anio usado para evaluar febrero en anios bisiestos.
-     * @return Cantidad de dias del mes proporcionado.
-     */
-    int daysInMonth(int month, int year) {
-        switch (month) {
-            case 2:
-                return isLeapYear(year) ? 29 : 28;
-            case 4:
-            case 6:
-            case 9:
-            case 11:
-                return 30;
-            default:
-                return 31;
-        }
     }
 
     /**
@@ -204,48 +168,38 @@ namespace {
      */
     bool containsLoadedTask(const vector<Task>& tasks, int id) {
         for (size_t i = 0; i < tasks.size(); i++) {
-            if (tasks[i].id == id) {
-                return true;
-            }
+            if (tasks[i].id == id) return true;
         }
-
         return false;
     }
 
-    /**
-     * @brief Verifica si existe un camino en un grafo temporal de validacion.
-     *
-     * @param graph Grafo de dependencias que se esta validando.
-     * @param currentId ID actual explorado por DFS.
-     * @param targetId ID objetivo que se busca alcanzar.
-     * @param visited IDs ya visitados durante este DFS.
-     * @return true si se puede alcanzar el objetivo; de lo contrario false.
-     */
-    bool graphHasPath(const map<int, vector<int> >& graph, int currentId, int targetId, vector<int>& visited) {
-        if (currentId == targetId) {
+/**
+ * @brief Verifica si existe un camino en un grafo temporal de validacion.
+ *
+ * @param graph Grafo de dependencias que se esta validando.
+ * @param currentId ID actual explorado por DFS.
+ * @param targetId ID objetivo que se busca alcanzar.
+ * @param visited IDs ya visitados durante este DFS.
+ * @return true si se puede alcanzar el objetivo; de lo contrario false.
+ */
+bool graphHasPath(const map<int, vector<int> >& graph, int currentId, int targetId, vector<int>& visited) {
+    if (currentId == targetId) return true;
+
+    if (find(visited.begin(), visited.end(), currentId) != visited.end())
+        return false;
+
+    visited.push_back(currentId);
+
+    map<int, vector<int> >::const_iterator it = graph.find(currentId);
+
+    if (it == graph.end()) return false;
+
+    for (size_t i = 0; i < it->second.size(); i++) {
+        if (graphHasPath(graph, it->second[i], targetId, visited)) {
             return true;
         }
-
-        if (find(visited.begin(), visited.end(), currentId) != visited.end()) {
-            return false;
-        }
-
-        visited.push_back(currentId);
-
-        map<int, vector<int> >::const_iterator it = graph.find(currentId);
-
-        if (it == graph.end()) {
-            return false;
-        }
-
-        for (size_t i = 0; i < it->second.size(); i++) {
-            if (graphHasPath(graph, it->second[i], targetId, visited)) {
-                return true;
-            }
-        }
-
-        return false;
     }
+    return false;
 }
 
 /**
@@ -778,27 +732,22 @@ vector<int> TaskPlanner::getPrerequisites(int id) const {
  * @return true si todos los archivos se guardaron correctamente; de lo contrario false.
  */
 bool TaskPlanner::saveData(const string& folderPath) const {
-    ofstream taskFile(makePath(folderPath, "tasks.txt").c_str());
+    ofstream tasksFile(makePath(folderPath, "tasks.txt").c_str());
 
-    if (!taskFile) {
-        return false;
+    if (!tasksFile) return false;
+
+    for (const Task& task : taskList) {
+        tasksFile << task.id << "|"
+                  << task.priority << "|"
+                  << escapeField(task.title) << "|"
+                  << escapeField(task.description) << "|"
+                  << escapeField(task.courseName) << "|"
+                  << task.deadline.mm << "|"
+                  << task.deadline.dd << "|"
+                  << task.deadline.yy << "|"
+                  << (task.completed ? "1" : "0") << "\n";
     }
-
-    vector<Task> tasks = taskList.toVector();
-
-    for (size_t i = 0; i < tasks.size(); i++) {
-        const Task& task = tasks[i];
-
-        taskFile << task.id << '\t'
-                 << task.priority << '\t'
-                 << task.deadline.mm << '\t'
-                 << task.deadline.dd << '\t'
-                 << task.deadline.yy << '\t'
-                 << (task.completed ? 1 : 0) << '\t'
-                 << escapeField(task.title) << '\t'
-                 << escapeField(task.description) << '\t'
-                 << escapeField(task.courseName) << '\n';
-    }
+    tasksFile.close();
 
     ofstream historyFile(makePath(folderPath, "history.txt").c_str());
 
@@ -823,7 +772,7 @@ bool TaskPlanner::saveData(const string& folderPath) const {
         const vector<int>& prerequisites = it->second;
 
         for (size_t i = 0; i < prerequisites.size(); i++) {
-            dependencyFile << it->first << '\t' << prerequisites[i] << '\n';
+            dependencyFile << it->first << '|' << prerequisites[i] << '\n';
         }
     }
 
@@ -857,7 +806,7 @@ bool TaskPlanner::loadData(const string& folderPath) {
             continue;
         }
 
-        vector<string> fields = splitTabs(line);
+        vector<string> fields = splitFields(line);
 
         if (fields.size() != 9) {
             return false;
@@ -909,7 +858,7 @@ bool TaskPlanner::loadData(const string& folderPath) {
             continue;
         }
 
-        vector<string> fields = splitTabs(line);
+        vector<string> fields = splitFields(line);
 
         if (fields.size() != 2) {
             return false;
